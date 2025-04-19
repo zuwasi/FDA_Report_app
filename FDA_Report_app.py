@@ -7,7 +7,7 @@
 # Parses Parasoft C/C++test HTML or XML reports,
 # separates real violations from suppressed items, and produces an
 # FDA-style HTML report with progress charts.
-# Created by Daniel Liezrowice for FDA K510 documentation.
+# Created by Daniel Liezrowice for FDA K510 documentation.April 2025
 
 import os
 import shutil
