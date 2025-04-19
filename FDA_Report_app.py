@@ -17,8 +17,14 @@ import webbrowser
 import json
 import re
 import subprocess
-import requests
-import base64
+
+# Try to import requests, but make it optional
+try:
+    import requests
+    import base64
+    GITHUB_AVAILABLE = True
+except ImportError:
+    GITHUB_AVAILABLE = False
 
 import matplotlib.pyplot as plt
 from bs4 import BeautifulSoup
@@ -190,6 +196,9 @@ def try_clone_github_repo(repo_url, temp_dir):
 
 def try_fetch_github_api(repo_url):
     """Try to fetch repository information from GitHub API."""
+    if not GITHUB_AVAILABLE:
+        return None
+        
     try:
         # Extract owner and repo name from URL
         # Supports formats like:
@@ -282,47 +291,55 @@ def get_repository_code_info():
         )
         
         if use_github:
-            # Get GitHub repository URL
-            repo_url = simpledialog.askstring(
-                "GitHub Repository",
-                "Enter GitHub repository URL:",
-                initialvalue="https://github.com/username/repo"
-            )
-            
-            if not repo_url:
-                return repo_info
+            if not GITHUB_AVAILABLE:
+                messagebox.showwarning(
+                    "GitHub Unavailable",
+                    "GitHub repository analysis requires the 'requests' module, which is not installed.\n\n"
+                    "Please install it with: pip install requests\n\n"
+                    "Proceeding with local directory selection."
+                )
+            else:
+                # Get GitHub repository URL
+                repo_url = simpledialog.askstring(
+                    "GitHub Repository",
+                    "Enter GitHub repository URL:",
+                    initialvalue="https://github.com/username/repo"
+                )
                 
-            repo_info['repo_path'] = repo_url
-            repo_info['is_github'] = True
-            
-            # Try GitHub API first
-            api_results = try_fetch_github_api(repo_url)
-            if api_results:
-                repo_info.update(api_results)
-                if 'total_source_files' in api_results:
-                    repo_info['note'] = f"Analyzed {api_results['source_files']} of {api_results['total_source_files']} source files due to API limitations"
-                return repo_info
-            
-            # If API fails, try cloning
-            import tempfile
-            temp_dir = tempfile.mkdtemp()
-            
-            success = try_clone_github_repo(repo_url, temp_dir)
-            if success:
-                results = count_lines_in_directory(temp_dir)
-                repo_info.update(results)
+                if not repo_url:
+                    return repo_info
+                    
+                repo_info['repo_path'] = repo_url
+                repo_info['is_github'] = True
                 
-                # Clean up temp directory
-                import shutil
-                shutil.rmtree(temp_dir, ignore_errors=True)
+                # Try GitHub API first
+                api_results = try_fetch_github_api(repo_url)
+                if api_results:
+                    repo_info.update(api_results)
+                    if 'total_source_files' in api_results:
+                        repo_info['note'] = f"Analyzed {api_results['source_files']} of {api_results['total_source_files']} source files due to API limitations"
+                    return repo_info
                 
-                return repo_info
-            
-            # If both methods fail
-            messagebox.showwarning(
-                "Repository Access Failed",
-                "Could not access GitHub repository. Please select a local directory instead."
-            )
+                # If API fails, try cloning
+                import tempfile
+                temp_dir = tempfile.mkdtemp()
+                
+                success = try_clone_github_repo(repo_url, temp_dir)
+                if success:
+                    results = count_lines_in_directory(temp_dir)
+                    repo_info.update(results)
+                    
+                    # Clean up temp directory
+                    import shutil
+                    shutil.rmtree(temp_dir, ignore_errors=True)
+                    
+                    return repo_info
+                
+                # If both methods fail
+                messagebox.showwarning(
+                    "Repository Access Failed",
+                    "Could not access GitHub repository. Please select a local directory instead."
+                )
         
         # Use local directory
         dir_path = filedialog.askdirectory(title="Select source code directory")
@@ -876,10 +893,24 @@ def get_inputs():
     for field in fields:
         device_info[field] = simpledialog.askstring("Input", f"Enter {field}:") or ""
     
-    # Get tool information with defaults
-    device_info["Tool Name"] = simpledialog.askstring("Input", "Enter Analysis Tool Name:", initialvalue="Parasoft C++TEST") or "Parasoft C++TEST"
-    device_info["Tool Version"] = simpledialog.askstring("Input", "Enter Tool Version:", initialvalue="2024.2") or "2024.2"
-    device_info["Rules Standard"] = simpledialog.askstring("Input", "Enter Rules Standard:", initialvalue="MISRA C 2023") or "MISRA C 2023"
+    # Get tool information with defaults - using the new text
+    device_info["Static Code Analysis tool used"] = simpledialog.askstring(
+        "Input", 
+        "Enter Static Code Analysis tool used:", #added for clarity 
+        initialvalue="Parasoft C++TEST"
+    ) or "Parasoft C++TEST"
+    
+    device_info["Tool Version"] = simpledialog.askstring(
+        "Input", 
+        "Enter Tool Version:", 
+        initialvalue="2024.2"
+    ) or "2024.2"
+    
+    device_info["Rules Standard"] = simpledialog.askstring(
+        "Input", 
+        "Enter Rules Standard:", 
+        initialvalue="MISRA C 2023"
+    ) or "MISRA C 2023"
     
     return device_info
 
@@ -952,8 +983,8 @@ def run():
         
         # Add tool info from report if available
         if tool_info:
-            if "name" in tool_info and not usr.get("Tool Name"):
-                usr["Tool Name"] = tool_info["name"]
+            if "name" in tool_info and not usr.get("Static Code Analysis tool used"):#added for clarity 
+                usr["Static Code Analysis tool used"] = tool_info["name"]
             if "version" in tool_info and not usr.get("Tool Version"):
                 usr["Tool Version"] = tool_info["version"]
             if "rules_standard" in tool_info and not usr.get("Rules Standard"):
