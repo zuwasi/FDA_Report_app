@@ -172,3 +172,16 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+# Good VS 2022 practice 
+.vs/
+bin/
+obj/
+*.user
+*.suo
+*.db
+*.db-shm
+*.db-wal
+# ignore reports files 
+Reports/
+
+
