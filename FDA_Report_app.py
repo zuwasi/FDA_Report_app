@@ -2,12 +2,11 @@
 # FDA Parasoft Report Viewer – violations and suppressions
 # ---------------------------------------------------------
 # Requirements (>= Python 3.8):
-#   pip install lxml matplotlib pillow beautifulsoup4
+#   pip install lxml matplotlib pillow beautifulsoup4 requests
 # ---------------------------------------------------------
 # Parses Parasoft C/C++test HTML or XML reports,
 # separates real violations from suppressed items, and produces an
 # FDA-style HTML report with progress charts.
-# Created by Daniel Liezrowice for FDA K510 documentation.April 2025
 
 import os
 import shutil
@@ -16,6 +15,10 @@ from tkinter import filedialog, simpledialog, messagebox, ttk
 from datetime import datetime
 import webbrowser
 import json
+import re
+import subprocess
+import requests
+import base64
 
 import matplotlib.pyplot as plt
 from bs4 import BeautifulSoup
@@ -122,6 +125,219 @@ def parse_suppression_file(path):
             supp['severity'] = 0  # Lowest
     
     return suppressions
+
+
+# Code Line Counter
+def count_lines_in_file(file_path):
+    """Count number of code lines in a file."""
+    try:
+        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            content = f.read()
+            
+            # Remove comments
+            # Remove C-style comments (/* ... */)
+            content = re.sub(r'/\*.*?\*/', '', content, flags=re.DOTALL)
+            # Remove C++-style comments (// ...)
+            content = re.sub(r'//.*?$', '', content, flags=re.MULTILINE)
+            
+            # Count non-empty lines
+            lines = [line.strip() for line in content.split('\n')]
+            return len([line for line in lines if line])
+    except Exception as e:
+        print(f"Error counting lines in {file_path}: {e}")
+        return 0
+
+def is_source_file(file_path):
+    """Check if a file is a C/C++ source file."""
+    extensions = ['.c', '.cpp', '.cc', '.cxx', '.h', '.hpp', '.hxx']
+    return any(file_path.lower().endswith(ext) for ext in extensions)
+
+def count_lines_in_directory(dir_path):
+    """Count lines of code in C/C++ files in a directory."""
+    total_lines = 0
+    source_files = 0
+    
+    for root, _, files in os.walk(dir_path):
+        for file in files:
+            file_path = os.path.join(root, file)
+            if is_source_file(file_path):
+                lines = count_lines_in_file(file_path)
+                total_lines += lines
+                source_files += 1
+    
+    return {
+        'total_lines': total_lines,
+        'source_files': source_files
+    }
+
+def try_clone_github_repo(repo_url, temp_dir):
+    """Try to clone a GitHub repository for line counting."""
+    try:
+        # Check if git is available
+        subprocess.run(['git', '--version'], check=True, capture_output=True)
+        
+        # Clone the repository
+        subprocess.run(
+            ['git', 'clone', '--depth', '1', repo_url, temp_dir], 
+            check=True, 
+            capture_output=True
+        )
+        
+        return True
+    except Exception as e:
+        print(f"Error cloning repository: {e}")
+        return False
+
+def try_fetch_github_api(repo_url):
+    """Try to fetch repository information from GitHub API."""
+    try:
+        # Extract owner and repo name from URL
+        # Supports formats like:
+        # https://github.com/owner/repo
+        # git@github.com:owner/repo.git
+        match = re.search(r'github\.com[/:]([\w-]+)/([\w-]+)', repo_url)
+        if not match:
+            return None
+            
+        owner = match.group(1)
+        repo = match.group(2)
+        if repo.endswith('.git'):
+            repo = repo[:-4]
+        
+        # GitHub API URL
+        api_url = f"https://api.github.com/repos/{owner}/{repo}/git/trees/main?recursive=1"
+        
+        # Make request
+        response = requests.get(api_url)
+        if response.status_code != 200:
+            # Try with 'master' branch if 'main' fails
+            api_url = f"https://api.github.com/repos/{owner}/{repo}/git/trees/master?recursive=1"
+            response = requests.get(api_url)
+            if response.status_code != 200:
+                return None
+        
+        data = response.json()
+        if 'tree' not in data:
+            return None
+            
+        # Get all C/C++ source files
+        source_files = []
+        for item in data['tree']:
+            if item['type'] == 'blob' and is_source_file(item['path']):
+                source_files.append({
+                    'path': item['path'],
+                    'url': item['url']
+                })
+        
+        # Count lines in each file
+        total_lines = 0
+        processed_files = 0
+        
+        for file_info in source_files[:100]:  # Limit to 100 files to avoid API rate limits
+            try:
+                file_url = file_info['url']
+                file_response = requests.get(file_url)
+                if file_response.status_code == 200:
+                    file_data = file_response.json()
+                    if 'content' in file_data and file_data.get('encoding') == 'base64':
+                        content = base64.b64decode(file_data['content']).decode('utf-8', errors='ignore')
+                        
+                        # Remove comments
+                        # Remove C-style comments (/* ... */)
+                        content = re.sub(r'/\*.*?\*/', '', content, flags=re.DOTALL)
+                        # Remove C++-style comments (// ...)
+                        content = re.sub(r'//.*?$', '', content, flags=re.MULTILINE)
+                        
+                        # Count non-empty lines
+                        lines = [line.strip() for line in content.split('\n')]
+                        line_count = len([line for line in lines if line])
+                        total_lines += line_count
+                        processed_files += 1
+            except Exception as e:
+                print(f"Error processing file {file_info['path']}: {e}")
+        
+        return {
+            'total_lines': total_lines,
+            'source_files': processed_files,
+            'total_source_files': len(source_files)
+        }
+    except Exception as e:
+        print(f"Error using GitHub API: {e}")
+        return None
+
+def get_repository_code_info():
+    """Get information about code in a repository (local or remote)."""
+    repo_info = {
+        'total_lines': 0,
+        'source_files': 0,
+        'repo_path': "",
+        'is_github': False
+    }
+    
+    try:
+        # Ask if user wants to use GitHub repository
+        use_github = messagebox.askyesno(
+            "Repository Selection",
+            "Do you want to use a GitHub repository?\nSelect 'Yes' for GitHub, 'No' for local directory."
+        )
+        
+        if use_github:
+            # Get GitHub repository URL
+            repo_url = simpledialog.askstring(
+                "GitHub Repository",
+                "Enter GitHub repository URL:",
+                initialvalue="https://github.com/username/repo"
+            )
+            
+            if not repo_url:
+                return repo_info
+                
+            repo_info['repo_path'] = repo_url
+            repo_info['is_github'] = True
+            
+            # Try GitHub API first
+            api_results = try_fetch_github_api(repo_url)
+            if api_results:
+                repo_info.update(api_results)
+                if 'total_source_files' in api_results:
+                    repo_info['note'] = f"Analyzed {api_results['source_files']} of {api_results['total_source_files']} source files due to API limitations"
+                return repo_info
+            
+            # If API fails, try cloning
+            import tempfile
+            temp_dir = tempfile.mkdtemp()
+            
+            success = try_clone_github_repo(repo_url, temp_dir)
+            if success:
+                results = count_lines_in_directory(temp_dir)
+                repo_info.update(results)
+                
+                # Clean up temp directory
+                import shutil
+                shutil.rmtree(temp_dir, ignore_errors=True)
+                
+                return repo_info
+            
+            # If both methods fail
+            messagebox.showwarning(
+                "Repository Access Failed",
+                "Could not access GitHub repository. Please select a local directory instead."
+            )
+        
+        # Use local directory
+        dir_path = filedialog.askdirectory(title="Select source code directory")
+        if dir_path:
+            repo_info['repo_path'] = dir_path
+            results = count_lines_in_directory(dir_path)
+            repo_info.update(results)
+        
+        return repo_info
+        
+    except Exception as e:
+        print(f"Error in repository code analysis: {e}")
+        import traceback
+        traceback.print_exc()
+        return repo_info
 
 
 # Parsers
@@ -371,8 +587,22 @@ def create_historical_chart(current, previous_data, out_png):
     plt.close()
 
 
-def generate_html(user, vc, pc, vd, png, logo, out_html, sc, sd, rules_list=[]):
-    """Generate HTML report with violations and suppressions."""
+def generate_html(user, vc, pc, vd, png, logo, out_html, sc, sd, rules_list=[], repo_info=None):
+    """Generate HTML report with violations and suppressions.
+    
+    Args:
+        user: Dictionary of user-provided device information
+        vc: List of violation counts by severity
+        pc: Previous violation counts (not used in current implementation)
+        vd: Dictionary of violation details by severity
+        png: Path to the chart image
+        logo: Path to logo image
+        out_html: Output HTML file path
+        sc: List of suppression counts by severity
+        sd: Dictionary of suppression details by severity
+        rules_list: List of rule dictionaries
+        repo_info: Repository code information (optional)
+    """
     
     # Get timestamp for report
     timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -406,6 +636,11 @@ def generate_html(user, vc, pc, vd, png, logo, out_html, sc, sd, rules_list=[]):
         ".fda-header { background-color: #f8f9fa; padding: 15px; border: 1px solid #e9ecef; margin-bottom: 20px; }",
         ".fda-notice { background-color: #e9f7fe; padding: 10px; border-left: 5px solid #3498db; margin: 15px 0; }",
         ".rules-table { font-size: 0.9em; }",
+        ".stats-box { background-color: #f5f7f8; border: 1px solid #ddd; padding: 15px; margin: 15px 0; border-radius: 5px; }",
+        ".stats-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 15px; }",
+        ".stat-item { background-color: white; padding: 15px; border-radius: 5px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); text-align: center; }",
+        ".stat-value { font-size: 24px; font-weight: bold; color: #2c3e50; margin: 10px 0; }",
+        ".stat-label { font-size: 14px; color: #7f8c8d; }",
         "</style>",
         "</head><body>",
         f"{logo_tag}<h1>FDA K510 Static Analysis Report</h1>",
@@ -422,11 +657,70 @@ def generate_html(user, vc, pc, vd, png, logo, out_html, sc, sd, rules_list=[]):
         "The complete list of active static analysis rules is provided at the end of this report.</p>",
         "</div>",
         "</div>",
-        
-        "<h2>Compliance Summary</h2>",
-        "<table>",
-        "<tr><th>Severity</th><th>Violations</th><th>Suppressions</th><th>Total</th></tr>",
     ]
+    
+    # Add code metrics section if available
+    if repo_info and repo_info.get('total_lines', 0) > 0:
+        parts.append("<h2>Source Code Metrics</h2>")
+        
+        # Add repository path
+        repo_path = repo_info.get('repo_path', 'Unknown')
+        is_github = repo_info.get('is_github', False)
+        
+        if is_github:
+            parts.append(f"<p>GitHub Repository: <a href='{repo_path}' target='_blank'>{repo_path}</a></p>")
+        else:
+            parts.append(f"<p>Local Repository: {repo_path}</p>")
+            
+        # Add metrics in a nice format
+        parts.append("<div class='stats-box'>")
+        parts.append("<div class='stats-grid'>")
+        
+        # Total LOC
+        parts.append("<div class='stat-item'>")
+        parts.append(f"<div class='stat-value'>{repo_info.get('total_lines', 0):,}</div>")
+        parts.append("<div class='stat-label'>Lines of Code</div>")
+        parts.append("</div>")
+        
+        # Source Files
+        parts.append("<div class='stat-item'>")
+        parts.append(f"<div class='stat-value'>{repo_info.get('source_files', 0):,}</div>")
+        parts.append("<div class='stat-label'>Source Files</div>")
+        parts.append("</div>")
+        
+        # Avg LOC per file
+        avg_loc = 0
+        if repo_info.get('source_files', 0) > 0:
+            avg_loc = round(repo_info.get('total_lines', 0) / repo_info.get('source_files', 1))
+            
+        parts.append("<div class='stat-item'>")
+        parts.append(f"<div class='stat-value'>{avg_loc:,}</div>")
+        parts.append("<div class='stat-label'>Avg. Lines per File</div>")
+        parts.append("</div>")
+        
+        # Analysis Ratio
+        total_violations = sum(vc)
+        violations_per_kloc = 0
+        if repo_info.get('total_lines', 0) > 0:
+            violations_per_kloc = round((total_violations * 1000) / repo_info.get('total_lines', 1), 2)
+            
+        parts.append("<div class='stat-item'>")
+        parts.append(f"<div class='stat-value'>{violations_per_kloc}</div>")
+        parts.append("<div class='stat-label'>Violations per 1K LOC</div>")
+        parts.append("</div>")
+        
+        parts.append("</div>") # End stats-grid
+        
+        # Add note if applicable
+        if 'note' in repo_info:
+            parts.append(f"<p><i>Note: {repo_info['note']}</i></p>")
+            
+        parts.append("</div>") # End stats-box
+    
+    # Compliance Summary section
+    parts.append("<h2>Compliance Summary</h2>")
+    parts.append("<table>")
+    parts.append("<tr><th>Severity</th><th>Violations</th><th>Suppressions</th><th>Total</th></tr>")
     
     # Add summary rows for each severity
     total_violations = sum(vc)
@@ -575,7 +869,7 @@ def get_inputs():
         "Manufacturer",
         "510(k) Number",
         "Contact Info",
-        "Software Version",  # Added SW version field
+        "Software Version",
     ]
     
     # Get basic device info
@@ -635,6 +929,12 @@ def run():
         # Print summary of violations and suppressions for debugging
         print(f"Violations by severity: {vc}")
         print(f"Suppressions by severity: {sc}")
+        
+        # Analyze repository code
+        repo_info = {}
+        if messagebox.askyesno("Code Analysis", "Would you like to include source code metrics in the report?"):
+            repo_info = get_repository_code_info()
+            print(f"Repository code info: {repo_info}")
         
         # History tracking file
         history_file = "analysis_history.json"
@@ -736,7 +1036,7 @@ def run():
         
         # Generate HTML report with additional information
         generate_html(usr, vc, [], vd, png, os.path.basename(logo_file) if logo_file else "", 
-                      out_html, sc, sd, rules_list)
+                      out_html, sc, sd, rules_list, repo_info)
         
         # Show completion message
         output_files = f"Reports saved to: {output_dir}\n\nFiles:\n{os.path.basename(out_html)}"
@@ -783,7 +1083,7 @@ def main():
               wraplength=500).pack(pady=5)
     
     # Add version information
-    version_text = "Version 1.0.0"
+    version_text = "Version 1.1.0"
     ttk.Label(main_frame, text=version_text, font=("Arial", 8)).pack(pady=2)
     
     # Separation line
@@ -795,7 +1095,8 @@ def main():
         "This tool processes Parasoft C/C++test HTML or XML reports and "
         "generates FDA-style documentation showing violations and suppressions "
         "with detailed statistics and progress charts.\n\n"
-        "Suppressions are read from a separate .suppress file, not from the report."
+        "Suppressions are read from a separate .suppress file, not from the report. "
+        "Source code metrics can be included from a local or GitHub repository."
     )
     ttk.Label(main_frame, text=instructions, wraplength=500, justify="center").pack(pady=10)
     
