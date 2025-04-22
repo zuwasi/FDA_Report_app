@@ -1167,6 +1167,7 @@ def main():
     root.mainloop()
 
 
-# Execute main function when script is run directly
+# Execute main function when script is run directly 
 if __name__ == "__main__":
     main()
+    #MISRA C2023 as deafult 
