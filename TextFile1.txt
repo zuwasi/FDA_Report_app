@@ -1,5 +1,5 @@
-ï»¿#!/usr/bin/env python3
-# FDA Parasoft Report Viewer â€“ violations and suppressions
+#!/usr/bin/env python3
+# FDA Parasoft Report Viewer – violations and suppressions
 # ---------------------------------------------------------
 # Requirements (>= Python 3.8):
 #   pip install lxml matplotlib pillow beautifulsoup4 requests
@@ -550,46 +550,56 @@ def load(path):
 
 # Report generation
 def create_historical_chart(current, previous_data, out_png):
-    """Create a bar chart showing historical progress of violations with trendlines."""
-    import numpy as np
-    import matplotlib.pyplot as plt
-
-    # Prepare data
-    data_points = [counts for _, counts in previous_data] + [current]
-    labels = [date for date, _ in previous_data] + ['Current']
-    x = np.arange(len(labels))
-    width = 0.15
-
-    fig, ax = plt.subplots(figsize=(12, 6))
-
+    """Create a bar chart showing historical progress of violations."""
+    
+    # Prepare data for the chart
+    data_points = []
+    labels = []
+    
+    # Add previous data
+    for i, (date, counts) in enumerate(previous_data):
+        data_points.append(counts)
+        labels.append(date)
+    
+    # Add current data
+    data_points.append(current)
+    labels.append('Current')
+    
+    # Create the figure
+    fig, ax = plt.subplots(figsize=(10, 6))
+    
+    # Create x positions for bars
+    x = range(len(labels))
+    width = 0.15  # Width of the bars
+    
+    # Plot bars for each severity
     for i in range(5):
-        # Data for severity level i
-        y = [point[i] for point in data_points]
+        severity_data = [data[i] for data in data_points]
         offset = (i - 2) * width
-
-        # Plot bars
-        bars = ax.bar(x + offset, y, width, label=SEVERITY_LABELS[i])
-
-        # Plot trendline
-        z = np.polyfit(x, y, 1)
-        p = np.poly1d(z)
-        ax.plot(x + offset, p(x), linestyle='--', linewidth=1.5)
-
-        # Data labels
+        bars = ax.bar([pos + offset for pos in x], severity_data, width, 
+                     label=SEVERITY_LABELS[i])
+        
+        # Add data labels on top of bars
         for bar in bars:
             height = bar.get_height()
             if height > 0:
-                ax.text(bar.get_x() + bar.get_width() / 2, height + 0.5, str(height),
-                        ha='center', va='bottom', fontsize=8)
-
+                ax.text(bar.get_x() + bar.get_width()/2., height + 0.3,
+                        f'{height}', ha='center', va='bottom')
+    
+    # Add labels and title
     ax.set_xlabel('Analysis Date')
     ax.set_ylabel('Number of Violations')
-    ax.set_title('Historical Progress of Violations by Severity (with Trendlines)')
+    ax.set_title('Historical Progress of Violations by Severity')
     ax.set_xticks(x)
     ax.set_xticklabels(labels, rotation=45, ha='right')
+    
+    # Add legend
     ax.legend()
-
+    
+    # Adjust layout
     plt.tight_layout()
+    
+    # Save the figure
     plt.savefig(out_png)
     plt.close()
 
@@ -660,7 +670,7 @@ def generate_html(user, vc, pc, vd, png, logo, out_html, sc, sd, rules_list=[], 
         "</table>",
         
         "<div class='fda-notice'>",
-        "<p><strong>Note:</strong> This report was generated using static code analysis as part of the FDA General Principles of Software Validation Report submission process. ",
+        "<p><strong>Note:</strong> This report was generated using static code analysis as part of the FDA General Principles of Software Validation submission process. ",
         "The complete list of active static analysis rules is provided at the end of this report.</p>",
         "</div>",
         "</div>",
@@ -853,7 +863,7 @@ def generate_html(user, vc, pc, vd, png, logo, out_html, sc, sd, rules_list=[], 
     parts.append("<hr>")
     parts.append("<div class='fda-notice'>")
     parts.append(f"<p><strong>FDA General Principles of Software Validation Static Analysis Report</strong> generated on {timestamp}</p>")
-    parts.append(f"<p>This report is part of the FDA General Principles of Software Validation Report submission for {user.get('Device Name', 'the device')} (SW Version: {user.get('Software Version', 'N/A')})</p>")
+    parts.append(f"<p>This report is part of the FDA General Principles of Software Validation submission for {user.get('Device Name', 'the device')} (SW Version: {user.get('Software Version', 'N/A')})</p>")
     parts.append("</div>")
     parts.append("</body></html>")
     
@@ -874,7 +884,7 @@ def get_inputs():
     fields = [
         "Device Name", 
         "Manufacturer",
-        "FDA General Principles of Software Validation Report Number",
+        "General Principles of Software Validation Report Number",
         "Contact Info",
         "Software Version",
     ]
@@ -899,8 +909,8 @@ def get_inputs():
     device_info["Rules Standard"] = simpledialog.askstring(
         "Input", 
         "Enter Rules Standard:", 
-        initialvalue="General Principles of Software Validation-MISRA C 2023 based3"
-    ) or "General Principles of Software Validation-MISRA C 2023 based"
+        initialvalue="MISRA C 2023"
+    ) or "MISRA C 2023"
     
     return device_info
 
@@ -1046,7 +1056,7 @@ def run():
             shutil.copyfile(logo_in, logo_file)
         
         # Base filenames
-        report_basename = f"FDA_General_Principles_of_Software_Validation_Report_{usr['Device Name'].replace(' ', '_')}_{ts}" if usr["Device Name"] else f"FDA_General_Principles_of_Software_Validation_{ts}"
+        report_basename = f"FDA_General_Principles_of_Software_Validation_{usr['Device Name'].replace(' ', '_')}_{ts}" if usr["Device Name"] else f"FDA_General_Principles_of_Software_Validation_{ts}"
         
         # Paths for output files
         png = os.path.join(output_dir, f"chart_{ts}.png")
@@ -1142,7 +1152,7 @@ def main():
     exit_btn.grid(row=0, column=1, padx=10)
     
     # Footer
-    footer_text = "Â© 2025 FDA General Principles of Software Validation Documentation Tools"
+    footer_text = "© 2025 FDA General Principles of Software Validation Documentation Tools"
     ttk.Label(main_frame, text=footer_text, font=("Arial", 8)).pack(side=tk.BOTTOM, pady=10)
     
     # Center the window
@@ -1160,4 +1170,4 @@ def main():
 # Execute main function when script is run directly 
 if __name__ == "__main__":
     main()
-    #General Principles of Software Validation-MISRA C 2023 based as deafult 
+    #MISRA C2023 as deafult 
