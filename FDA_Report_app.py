@@ -1141,7 +1141,7 @@ def main():
     )
     exit_btn.grid(row=0, column=1, padx=10)
     
-    # Footer
+    # Footer//Dani Backup
     footer_text = "© 2025 FDA General Principles of Software Validation Documentation Tools"
     ttk.Label(main_frame, text=footer_text, font=("Arial", 8)).pack(side=tk.BOTTOM, pady=10)
     
