@@ -30,6 +30,9 @@ import matplotlib.pyplot as plt
 from bs4 import BeautifulSoup
 from lxml import etree
 
+cancel_flag = False  # Global flag to allow cancelling at any phase
+
+
 # Constants & helpers
 SEVERITY_LABELS = ["Lowest", "Low", "Medium", "High", "Highest"]
 SEV_KEYWORDS = {"lowest": 0, "low": 1, "medium": 2, "high": 3, "highest": 4}
@@ -300,7 +303,7 @@ def get_repository_code_info():
                 )
             else:
                 # Get GitHub repository URL
-                repo_url = simpledialog.askstring(
+                repo_url = ask_string(
                     "GitHub Repository",
                     "Enter GitHub repository URL:",
                     initialvalue="https://github.com/username/repo"
@@ -881,35 +884,64 @@ def get_inputs():
     
     # Get basic device info
     for field in fields:
-        device_info[field] = simpledialog.askstring("Input", f"Enter {field}:") or ""
+        device_info[field] = ask_string("Input", f"Enter {field}:") or ""
     
     # Get tool information with defaults - using the new text
-    device_info["Static Code Analysis tool used"] = simpledialog.askstring(
+    device_info["Static Code Analysis tool used"] = ask_string(
         "Input", 
         "Enter Static Code Analysis tool used:", #added for clarity 
         initialvalue="Parasoft C++TEST"
     ) or "Parasoft C++TEST"
     
-    device_info["Tool Version"] = simpledialog.askstring(
+    device_info["Tool Version"] = ask_string(
         "Input", 
         "Enter Tool Version:", 
         initialvalue="2024.2"
     ) or "2024.2"
     
-    device_info["Rules Standard"] = simpledialog.askstring(
+    device_info["Rules Standard"] = ask_string(
         "Input", 
         "Enter Rules Standard:", 
-        initialvalue="General Principles of Software Validation-MISRA C 2023 based3"
+        initialvalue="General Principles of Software Validation-MISRA C 2023 based"
     ) or "General Principles of Software Validation-MISRA C 2023 based"
     
     return device_info
 
 
+def ask_string(title, prompt, initialvalue=""): 
+    global cancel_flag
+    result = [None]
+    dialog = tk.Toplevel()
+    dialog.title(title)
+    dialog.geometry("600x150")
+    tk.Label(dialog, text=prompt, font=("Arial", 12)).pack(pady=10)
+    entry_var = tk.StringVar(value=initialvalue)
+    entry = tk.Entry(dialog, textvariable=entry_var, font=("Arial", 12), width=50)
+    entry.pack(padx=20, pady=5)
+    entry.focus()
+    def on_ok(): result[0] = entry_var.get(); dialog.destroy()
+    def on_cancel():
+        global cancel_flag
+        cancel_flag = True
+        dialog.destroy()
+    button_frame = tk.Frame(dialog)
+    button_frame.pack(pady=10)
+    tk.Button(button_frame, text="OK", width=10, command=on_ok).pack(side="left", padx=10)
+    tk.Button(button_frame, text="Cancel", width=10, command=on_cancel).pack(side="right", padx=10)
+    dialog.transient()
+    dialog.grab_set()
+    dialog.wait_window()
+    return result[0]
+
 def run():
     """Main function to run the report generator."""
+    global cancel_flag
     try:
         # Get the current report
         cur_p = _get_report("Select CURRENT report (XML or HTML)")
+        if cancel_flag:
+            messagebox.showinfo('Cancelled', 'Report generation cancelled.')
+            return
         if not cur_p: 
             return
         
@@ -918,6 +950,9 @@ def run():
         
         # Ask for suppression file
         supp_p = _get_report("Select suppression file (.suppress)")
+        if cancel_flag:
+            messagebox.showinfo('Cancelled', 'Report generation cancelled.')
+            return
         
         # Initialize suppression data structures
         sc = [0]*5  # Suppression counts by severity
@@ -955,6 +990,9 @@ def run():
         repo_info = {}
         if messagebox.askyesno("Code Analysis", "Would you like to include source code metrics in the report?"):
             repo_info = get_repository_code_info()
+            if cancel_flag:
+                messagebox.showinfo('Cancelled', 'Report generation cancelled.')
+                return
             print(f"Repository code info: {repo_info}")
         
         # History tracking file
@@ -970,6 +1008,9 @@ def run():
         
         # Get user inputs for device info
         usr = get_inputs()
+        if cancel_flag:
+            messagebox.showinfo('Cancelled', 'Report generation cancelled.')
+            return
         
         # Add tool info from report if available
         if tool_info:
@@ -986,8 +1027,11 @@ def run():
         
         # Check if user wants to add previous reports
         prev_data = []
-        add_history = messagebox.askyesno("Historical Data", 
+        add_history = messagebox.askyesno("Historical Data",
             "Do you want to include historical data (previous reports) in the progress chart?")
+        if cancel_flag:
+            messagebox.showinfo('Cancelled', 'Report generation cancelled.')
+            return 
         
         if add_history:
             done_adding = False
@@ -1002,7 +1046,7 @@ def run():
                     pvc, _, _, _ = load(prev_p)
                     
                     # Ask for the date of this previous report
-                    prev_date = simpledialog.askstring("Previous Report Date", 
+                    prev_date = ask_string("Previous Report Date", 
                         "Enter the date for this previous report (YYYY-MM-DD):",
                         initialvalue=datetime.now().strftime("%Y-%m-%d"))
                     
@@ -1029,6 +1073,9 @@ def run():
         
         # Allow user to select output directory
         output_dir = filedialog.askdirectory(title="Select output directory for reports")
+        if cancel_flag:
+            messagebox.showinfo('Cancelled', 'Report generation cancelled.')
+            return
         if not output_dir:
             # User cancelled, use default directory
             # Use a safe device name for folder creation
@@ -1040,10 +1087,19 @@ def run():
         
         # Get logo if desired
         logo_file = ""
-        logo_in = filedialog.askopenfilename(title="Select logo (optional)", filetypes=[("Images","*.png;*.jpg;*.jpeg")])
+        logo_in = filedialog.askopenfilename(title="Select logo (optional)",
+            filetypes=[("Images","*.png;*.jpg;*.jpeg")])
+        if cancel_flag:
+            messagebox.showinfo('Cancelled', 'Report generation cancelled.')
+            return
         if logo_in: 
             logo_file = os.path.join(output_dir, "logo" + os.path.splitext(logo_in)[1])
-            shutil.copyfile(logo_in, logo_file)
+            # Only copy if source and destination are different
+            if os.path.abspath(logo_in) != os.path.abspath(logo_file):
+                shutil.copyfile(logo_in, logo_file)
+            else:
+                # If they're the same, just use the original file
+                logo_file = logo_in
         
         # Base filenames
         report_basename = f"FDA_General_Principles_of_Software_Validation_Report_{usr['Device Name'].replace(' ', '_')}_{ts}" if usr["Device Name"] else f"FDA_General_Principles_of_Software_Validation_{ts}"
@@ -1141,7 +1197,7 @@ def main():
     )
     exit_btn.grid(row=0, column=1, padx=10)
     
-    # Footer//Dani Backup
+    # Footer
     footer_text = "© 2025 FDA General Principles of Software Validation Documentation Tools"
     ttk.Label(main_frame, text=footer_text, font=("Arial", 8)).pack(side=tk.BOTTOM, pady=10)
     
@@ -1160,4 +1216,3 @@ def main():
 # Execute main function when script is run directly 
 if __name__ == "__main__":
     main()
-    #General Principles of Software Validation-MISRA C 2023 based as deafult 
