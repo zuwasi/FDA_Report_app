@@ -573,16 +573,27 @@ def create_historical_chart(current, previous_data, out_png):
         # Plot bars
         bars = ax.bar(x + offset, y, width, label=SEVERITY_LABELS[i])
 
-        # Plot trendline
-        z = np.polyfit(x, y, 1)
-        p = np.poly1d(z)
-        ax.plot(x + offset, p(x), linestyle='--', linewidth=1.5)
+        # Plot trendline only if we have enough data points and variation
+        if len(x) >= 2:
+            try:
+                # Check if we have any variation in the data
+                if len(set(y)) > 1:  # More than one unique value
+                    z = np.polyfit(x, y, min(1, len(x) - 1))  # Use linear fit, or constant if only 2 points
+                    p = np.poly1d(z)
+                    ax.plot(x + offset, p(x), linestyle='--', linewidth=1.5, alpha=0.7)
+                else:
+                    # If all values are the same, draw a horizontal line
+                    ax.axhline(y=y[0], linestyle='--', linewidth=1.5, alpha=0.7)
+            except (np.linalg.LinAlgError, np.RankWarning, ValueError) as e:
+                # If polynomial fitting fails, skip the trendline for this severity
+                print(f"Skipping trendline for {SEVERITY_LABELS[i]} due to: {e}")
+                pass
 
         # Data labels
         for bar in bars:
             height = bar.get_height()
             if height > 0:
-                ax.text(bar.get_x() + bar.get_width() / 2, height + 0.5, str(height),
+                ax.text(bar.get_x() + bar.get_width() / 2, height + 0.5, str(int(height)),
                         ha='center', va='bottom', fontsize=8)
 
     ax.set_xlabel('Analysis Date')
@@ -591,9 +602,10 @@ def create_historical_chart(current, previous_data, out_png):
     ax.set_xticks(x)
     ax.set_xticklabels(labels, rotation=45, ha='right')
     ax.legend()
+    ax.grid(True, alpha=0.3)
 
     plt.tight_layout()
-    plt.savefig(out_png)
+    plt.savefig(out_png, dpi=150, bbox_inches='tight')
     plt.close()
 
 
