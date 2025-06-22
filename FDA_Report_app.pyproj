@@ -25,7 +25,7 @@
     <Compile Include="FDA_Report_app.py" />
   </ItemGroup>
   <ItemGroup>
-    <Content Include="TextFile1.txt" />
+    <Content Include="readme.txt" />
   </ItemGroup>
   <!-- Import the standard Python Tools targets -->
   <Import Project="$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)\Python Tools\Microsoft.PythonTools.targets" />
