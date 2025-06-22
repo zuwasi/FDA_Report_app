@@ -1172,7 +1172,7 @@ def main():
               wraplength=500).pack(pady=5)
     
     # Add version information
-    version_text = "Version 1.1.0"
+    version_text = "Version 1.1.5"
     ttk.Label(main_frame, text=version_text, font=("Arial", 8)).pack(pady=2)
     
     # Separation line
