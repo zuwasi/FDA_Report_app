@@ -1,0 +1,14 @@
+# General Parasoft Report Viewer - Python Dependencies
+# Install with: pip install -r requirements.txt
+
+# Core dependencies (required)
+lxml>=4.6.0
+matplotlib>=3.5.0
+pillow>=8.3.0
+beautifulsoup4>=4.10.0
+
+# Optional dependencies
+requests>=2.25.0
+
+# Development dependencies (optional)
+pyinstaller>=4.0
