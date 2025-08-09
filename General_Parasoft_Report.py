@@ -32,10 +32,222 @@ from lxml import etree
 
 cancel_flag = False  # Global flag to allow cancelling at any phase
 
+# Global exclusions data
+exclusions_config = {
+    'excluded_paths': [],  # List of excluded file/folder paths
+    'exclusions': []       # List of exclusion objects with path, type, justification, date
+}
 
 # Constants & helpers
 SEVERITY_LABELS = ["Lowest", "Low", "Medium", "High", "Highest"]
 SEV_KEYWORDS = {"lowest": 0, "low": 1, "medium": 2, "high": 3, "highest": 4}
+
+
+def save_exclusions_config(file_path: str = None):
+    """Save the exclusions configuration to a JSON file."""
+    if not file_path:
+        file_path = "exclusions_config.json"
+    
+    try:
+        with open(file_path, 'w', encoding='utf-8') as f:
+            json.dump(exclusions_config, f, indent=2, ensure_ascii=False)
+        print(f"Exclusions configuration saved to {file_path}")
+    except Exception as e:
+        print(f"Error saving exclusions config: {e}")
+
+
+def load_exclusions_config(file_path: str = None):
+    """Load the exclusions configuration from a JSON file."""
+    global exclusions_config
+    
+    if not file_path:
+        file_path = "exclusions_config.json"
+    
+    if not os.path.exists(file_path):
+        return
+        
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            loaded_config = json.load(f)
+            exclusions_config.update(loaded_config)
+        print(f"Exclusions configuration loaded from {file_path}")
+    except Exception as e:
+        print(f"Error loading exclusions config: {e}")
+
+
+def is_path_excluded(file_path: str) -> bool:
+    """Check if a file path should be excluded based on exclusions configuration."""
+    if not file_path or not exclusions_config['excluded_paths']:
+        return False
+    
+    normalized_path = os.path.normpath(file_path).replace('\\', '/')
+    
+    for excluded_path in exclusions_config['excluded_paths']:
+        excluded_normalized = os.path.normpath(excluded_path).replace('\\', '/')
+        
+        # Check if the file path starts with the excluded path (for folders)
+        # or if it's an exact match (for files)
+        if (normalized_path.startswith(excluded_normalized + '/') or 
+            normalized_path == excluded_normalized):
+            return True
+    
+    return False
+
+
+def configure_exclusions():
+    """Open the exclusions configuration dialog."""
+    global exclusions_config
+    
+    # Create exclusions window
+    exclusions_window = tk.Toplevel()
+    exclusions_window.title("Configure Exclusions")
+    exclusions_window.geometry("800x600")
+    exclusions_window.grab_set()  # Make it modal
+    
+    # Main frame
+    main_frame = ttk.Frame(exclusions_window, padding="10")
+    main_frame.pack(fill=tk.BOTH, expand=True)
+    
+    # Title
+    ttk.Label(main_frame, text="Configure Exclusions", font=("Arial", 14, "bold")).pack(pady=5)
+    ttk.Label(main_frame, text="Exclude folders or files from static analysis reporting", 
+              font=("Arial", 10)).pack(pady=5)
+    
+    # Instructions
+    instructions = ("Select folders or files to exclude from the report. "
+                   "Each exclusion requires a justification that will be shown in the final report.")
+    ttk.Label(main_frame, text=instructions, wraplength=700).pack(pady=10)
+    
+    # Buttons frame
+    buttons_frame = ttk.Frame(main_frame)
+    buttons_frame.pack(fill=tk.X, pady=10)
+    
+    def add_folder_exclusion():
+        folder_path = filedialog.askdirectory(title="Select folder to exclude")
+        if folder_path:
+            add_exclusion(folder_path, "folder")
+    
+    def add_file_exclusion():
+        file_path = filedialog.askopenfilename(title="Select file to exclude")
+        if file_path:
+            add_exclusion(file_path, "file")
+    
+    def add_exclusion(path, path_type):
+        # Get justification
+        justification = simpledialog.askstring(
+            "Justification Required",
+            f"Please provide justification for excluding this {path_type}:\n\n{path}",
+            initialvalue=""
+        )
+        
+        if not justification or not justification.strip():
+            messagebox.showwarning("Missing Justification", 
+                                 "Justification is required for exclusions.")
+            return
+        
+        # Check if already excluded
+        if path in exclusions_config['excluded_paths']:
+            messagebox.showinfo("Already Excluded", f"This {path_type} is already excluded.")
+            return
+        
+        # Add to exclusions
+        exclusion_entry = {
+            'path': path,
+            'type': path_type,
+            'justification': justification.strip(),
+            'date_added': datetime.now().isoformat()
+        }
+        
+        exclusions_config['excluded_paths'].append(path)
+        exclusions_config['exclusions'].append(exclusion_entry)
+        
+        # Refresh the list
+        refresh_exclusions_list()
+        
+        messagebox.showinfo("Exclusion Added", f"{path_type.title()} excluded successfully.")
+    
+    def remove_exclusion():
+        selection = exclusions_listbox.curselection()
+        if not selection:
+            messagebox.showwarning("No Selection", "Please select an exclusion to remove.")
+            return
+        
+        index = selection[0]
+        if index < len(exclusions_config['exclusions']):
+            excluded_item = exclusions_config['exclusions'][index]
+            path = excluded_item['path']
+            
+            # Remove from both lists
+            exclusions_config['exclusions'].pop(index)
+            if path in exclusions_config['excluded_paths']:
+                exclusions_config['excluded_paths'].remove(path)
+            
+            refresh_exclusions_list()
+            messagebox.showinfo("Exclusion Removed", "Exclusion removed successfully.")
+    
+    def refresh_exclusions_list():
+        exclusions_listbox.delete(0, tk.END)
+        for exclusion in exclusions_config['exclusions']:
+            display_text = f"[{exclusion['type'].upper()}] {exclusion['path']}"
+            exclusions_listbox.insert(tk.END, display_text)
+    
+    def show_justification():
+        selection = exclusions_listbox.curselection()
+        if not selection:
+            messagebox.showwarning("No Selection", "Please select an exclusion to view its justification.")
+            return
+        
+        index = selection[0]
+        if index < len(exclusions_config['exclusions']):
+            exclusion = exclusions_config['exclusions'][index]
+            justification_text = (f"Path: {exclusion['path']}\n"
+                                f"Type: {exclusion['type'].title()}\n"
+                                f"Date Added: {exclusion['date_added']}\n\n"
+                                f"Justification:\n{exclusion['justification']}")
+            
+            messagebox.showinfo("Exclusion Details", justification_text)
+    
+    # Add buttons
+    ttk.Button(buttons_frame, text="Add Folder", command=add_folder_exclusion).pack(side=tk.LEFT, padx=5)
+    ttk.Button(buttons_frame, text="Add File", command=add_file_exclusion).pack(side=tk.LEFT, padx=5)
+    ttk.Button(buttons_frame, text="Remove Selected", command=remove_exclusion).pack(side=tk.LEFT, padx=5)
+    ttk.Button(buttons_frame, text="View Details", command=show_justification).pack(side=tk.LEFT, padx=5)
+    
+    # Exclusions list frame
+    list_frame = ttk.LabelFrame(main_frame, text="Current Exclusions")
+    list_frame.pack(fill=tk.BOTH, expand=True, pady=10)
+    
+    # Listbox with scrollbar
+    list_container = ttk.Frame(list_frame)
+    list_container.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+    
+    exclusions_listbox = tk.Listbox(list_container)
+    scrollbar = ttk.Scrollbar(list_container, orient="vertical", command=exclusions_listbox.yview)
+    exclusions_listbox.configure(yscrollcommand=scrollbar.set)
+    
+    exclusions_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+    scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+    
+    # Bottom buttons
+    bottom_frame = ttk.Frame(main_frame)
+    bottom_frame.pack(fill=tk.X, pady=10)
+    
+    def save_and_close():
+        save_exclusions_config()
+        exclusions_window.destroy()
+    
+    ttk.Button(bottom_frame, text="Save & Close", command=save_and_close).pack(side=tk.RIGHT, padx=5)
+    ttk.Button(bottom_frame, text="Cancel", command=exclusions_window.destroy).pack(side=tk.RIGHT, padx=5)
+    
+    # Load existing exclusions and refresh list
+    load_exclusions_config()
+    refresh_exclusions_list()
+    
+    # Center the window
+    exclusions_window.update_idletasks()
+    x = (exclusions_window.winfo_screenwidth() // 2) - (400)
+    y = (exclusions_window.winfo_screenheight() // 2) - (300)
+    exclusions_window.geometry(f"800x600+{x}+{y}")
 
 
 def _normalize_file_path(file_path: str, base_path: str = None) -> str:
@@ -455,8 +667,11 @@ def parse_html_report(path):
             # Store in violation data structure with file context and complete path
             # Store as tuple: (line, message, rule, file_path)
             normalized_path = _normalize_file_path(current_file)
-            vc[sev] += 1
-            vd[sev].append((ln, msg, rule, normalized_path))
+            
+            # Apply exclusions filter
+            if not is_path_excluded(normalized_path):
+                vc[sev] += 1
+                vd[sev].append((ln, msg, rule, normalized_path))
         
     except Exception as e:
         print(f"Error parsing HTML: {e}")
@@ -513,8 +728,11 @@ def parse_xml_report(path):
                 # We only count this as a violation
                 # Store as tuple: (line, message, rule, file_path)
                 normalized_path = _normalize_file_path(file_path)
-                vc[severity] += 1
-                vd[severity].append((line_num, message, rule, normalized_path))
+                
+                # Apply exclusions filter
+                if not is_path_excluded(normalized_path):
+                    vc[severity] += 1
+                    vd[severity].append((line_num, message, rule, normalized_path))
             except Exception as e:
                 print(f"Error processing violation: {e}")
                 continue
@@ -771,6 +989,38 @@ def generate_html(user, vc, pc, vd, png, logo, out_html, sc, sd, rules_list=[], 
             
         parts.append("</div>") # End stats-box
     
+    # Exclusions section
+    if exclusions_config['exclusions']:
+        parts.append("<h2>Excluded Paths</h2>")
+        parts.append("<div class='stats-box'>")
+        parts.append(f"<p><strong>{len(exclusions_config['exclusions'])} path(s) excluded</strong> from this analysis report:</p>")
+        parts.append("<table>")
+        parts.append("<tr><th>Type</th><th>Path</th><th>Justification</th><th>Date Added</th></tr>")
+        
+        for exclusion in exclusions_config['exclusions']:
+            exc_type = exclusion.get('type', 'unknown').title()
+            exc_path = exclusion.get('path', '')
+            exc_justification = exclusion.get('justification', '')
+            exc_date = exclusion.get('date_added', '')
+            
+            # Format date for display
+            try:
+                date_obj = datetime.fromisoformat(exc_date)
+                formatted_date = date_obj.strftime('%Y-%m-%d')
+            except:
+                formatted_date = exc_date
+            
+            parts.append(f"<tr>")
+            parts.append(f"<td>{exc_type}</td>")
+            parts.append(f"<td class='file-path'>{exc_path}</td>")
+            parts.append(f"<td>{exc_justification}</td>")
+            parts.append(f"<td>{formatted_date}</td>")
+            parts.append(f"</tr>")
+        
+        parts.append("</table>")
+        parts.append("<p><i>Note: Issues from these excluded paths are not included in the violation counts above.</i></p>")
+        parts.append("</div>")
+    
     # Compliance Summary section
     parts.append("<h2>Analysis Summary</h2>")
     parts.append("<table>")
@@ -1014,6 +1264,9 @@ def run():
     """Main function to run the report generator."""
     global cancel_flag
     try:
+        # Load exclusions configuration
+        load_exclusions_config()
+        
         # Get the current report
         cur_p = _get_report("Select CURRENT report (XML or HTML)")
         if cancel_flag:
@@ -1258,13 +1511,21 @@ def main():
     button_frame = ttk.Frame(main_frame)
     button_frame.pack(pady=20)
     
+    # Configure exclusions button
+    exclusions_btn = ttk.Button(
+        button_frame, 
+        text="Configure Exclusions", 
+        command=configure_exclusions
+    )
+    exclusions_btn.grid(row=0, column=0, padx=10)
+    
     # Generate report button
     generate_btn = ttk.Button(
         button_frame, 
         text="Generate Report", 
         command=lambda: [root.withdraw(), run(), root.deiconify()]
     )
-    generate_btn.grid(row=0, column=0, padx=10)
+    generate_btn.grid(row=0, column=1, padx=10)
     
     # Exit button
     exit_btn = ttk.Button(
@@ -1272,7 +1533,7 @@ def main():
         text="Exit", 
         command=root.destroy
     )
-    exit_btn.grid(row=0, column=1, padx=10)
+    exit_btn.grid(row=0, column=2, padx=10)
     
     # Footer
     footer_text = "© 2025 General Static Analysis Documentation Tools"
