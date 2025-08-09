@@ -1,0 +1,12 @@
+{
+  "excluded_directories": [
+    "C:/Users/danie/parasoft/examples/example/project_includes"
+  ],
+  "excluded_files": [
+    "C:/Users/danie/parasoft/examples/example/clock.c"
+  ],
+  "exclusion_justifications": {
+    "C:/Users/danie/parasoft/examples/example/project_includes": "for testing only",
+    "C:/Users/danie/parasoft/examples/example/clock.c": "for testing only"
+  }
+}
